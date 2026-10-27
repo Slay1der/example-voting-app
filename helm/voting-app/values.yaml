@@ -1,0 +1,23 @@
+image:
+  registry: ghcr.io/slay1der
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+vote:
+  replicas: 1
+  port: 8080
+
+result:
+  replicas: 1
+  port: 8080
+
+worker:
+  replicas: 1
+
+redis:
+  image: redis:7-alpine
+
+db:
+  image: postgres:15-alpine
+  user: postgres
+  password: postgres
