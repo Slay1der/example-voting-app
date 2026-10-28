@@ -133,4 +133,32 @@ Trivy blocked the first builds. Fixes:
 | Service | Finding | Fix |
 |---|---|---|
 | worker | `System.Drawing.Common 5.0.0`, CVE-2021-24112 (critical, pulled in transitively by StackExchange.Redis) | Pinned `System.Drawing.Common 5.0.3` |
-| worker | .NET 7 runtime on end-of-life Debian 11 (e.g. `libkrb5support0`) |
+| worker | .NET 7 runtime on end-of-life Debian 11 (e.g. `libkrb5support0`) | Upgraded to .NET 8 LTS |
+| result | Node 18 end-of-life base image | Upgraded to Node 22 LTS |
+| result | Vulnerable transitive npm packages | `npm audit fix` (lock file only, no major upgrades) |
+
+## Troubleshooting log
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Worker stuck on "Waiting for db" in Codespaces | `iptables-legacy` FORWARD policy was DROP, only `docker0` allowed, so Compose bridge networks were blocked | `sudo iptables-legacy -P FORWARD ACCEPT` (dev Codespace only) |
+| Build cache and container layer errors after Codespace restarts | Corrupted Docker storage | `docker builder prune -af`, `docker compose down` |
+| EKS node group stuck in CREATING with no EC2 instances | Free-plan account cannot launch `t3.medium` (found in the Auto Scaling Group activity log) | Switched to free-tier eligible `m7i-flex.large` |
+| CI: `unable to find version 0.28.0` | Trivy action tag did not exist | Pinned to the v0.36.0 commit SHA |
+| CI: `unknown blob` on push | Layer lost between Buildx and `docker push` | Push with `docker/build-push-action` and `push: true` |
+| CI deploy: `Not authorized to perform sts:AssumeRoleWithWebIdentity` | GitHub's OIDC `sub` claim includes immutable owner and repo IDs (`repo:Slay1der@276008203/example-voting-app@1434778703:ref:refs/heads/main`), so the trust rule did not match | Printed the claims in a debug step, then matched the IAM trust policy to the real `sub` |
+
+## Known limitations
+
+- The database password is the demo default because the upstream `worker` and `result` code hard-code the connection string. Next step: read it from environment variables and supply it from a Kubernetes Secret created outside Git.
+- Redis and Postgres use `emptyDir`, so data is lost when pods restart. Next step: a PersistentVolumeClaim.
+- The EKS API endpoint is public. Next step: restrict `public_access_cidrs`.
+- Terraform state is local. Next step: remote state in S3 with locking.
+
+## Cost
+
+About $0.20 per hour while the cluster runs (EKS control plane plus two nodes). The cluster is destroyed whenever it is not in use and rebuilt from code in about 12 minutes.
+
+## Screenshots and evidence
+
+See the [evidence log](docs/evidence.md) for terminal output and all screenshots from the build, debugging, deploy and rollback.

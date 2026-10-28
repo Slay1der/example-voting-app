@@ -17,7 +17,7 @@ resource "aws_iam_role" "github_deploy" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:Slay1der/example-voting-app:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:Slay1der@276008203/example-voting-app@1434778703:ref:refs/heads/main"
         }
       }
     }]
