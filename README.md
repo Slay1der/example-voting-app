@@ -1,65 +1,147 @@
-# Example Voting App
+# 🏠 Smart Home Voice Activation System
+### Wokwi Arduino Simulation
 
-A simple distributed application running across multiple Docker containers.
+A simulated smart home system built on Arduino that allows voice-activated control of home devices. When a device is turned on or off, the OLED display updates in real time to show the current status of all devices.
 
-## Getting started
+---
 
-Download [Docker Desktop](https://www.docker.com/products/docker-desktop) for Mac or Windows. [Docker Compose](https://docs.docker.com/compose) will be automatically installed. On Linux, make sure you have the latest version of [Compose](https://docs.docker.com/compose/install/).
+## 📋 Components
 
-This solution uses Python, Node.js, .NET, with Redis for messaging and Postgres for storage.
+| Component | Model | Quantity |
+|---|---|---|
+| Microcontroller | Arduino Uno | 1 |
+| Display | SSD1306 OLED 128x64 (I2C) | 1 |
+| LEDs | Yellow, Red, Blue, Green | 4 |
+| Resistors | 220Ω | 4 |
+| Push Buttons | Any colour | 5 |
 
-Run in this directory to build and run the app:
+---
 
-```shell
-docker compose up
+## 🔌 Pin Mapping
+
+### Device Output Pins
+| Device | Pin | LED Colour |
+|---|---|---|
+| Light | D2 | Yellow |
+| Heater | D3 | Red |
+| AC | D4 | Blue |
+| Fan | D5 | Green |
+
+### Button Input Pins
+| Button | Pin | Action |
+|---|---|---|
+| Light Toggle | D6 | Turns Light ON/OFF |
+| Heater Toggle | D7 | Turns Heater ON/OFF |
+| AC Toggle | D8 | Turns AC ON/OFF |
+| Fan Toggle | D9 | Turns Fan ON/OFF |
+| All Off | D10 | Turns ALL devices OFF |
+
+### OLED Display (I2C)
+| Signal | Pin |
+|---|---|
+| SDA | A4 |
+| SCL | A5 |
+| VCC | 5V |
+| GND | GND |
+
+---
+
+## 📦 Libraries Required
+
+Install these libraries in Wokwi's Library Manager or via Arduino IDE:
+
+- **Adafruit SSD1306** — OLED display driver
+- **Adafruit GFX** — Graphics core library
+
+---
+
+## 🚀 How to Run
+
+1. Go to [wokwi.com](https://wokwi.com) and create a new **Arduino Uno** project
+2. Replace the default `diagram.json` with the provided `diagram.json`
+3. Replace the default `sketch.ino` with the provided `sketch.ino`
+4. Add the required libraries via the **Library Manager** (click the `+` icon)
+5. Click the **▶ Play** button to start the simulation
+
+---
+
+## 🎙️ Voice Commands
+
+Voice is simulated through the **Serial Monitor** (set baud rate to `9600`). Type any of the following commands and press **Enter**:
+
+| Command | Action |
+|---|---|
+| `turn on light` | Turns the light ON |
+| `turn off light` | Turns the light OFF |
+| `turn on heater` | Turns the heater ON |
+| `turn off heater` | Turns the heater OFF |
+| `turn on ac` | Turns the AC ON |
+| `turn off ac` | Turns the AC OFF |
+| `turn on fan` | Turns the fan ON |
+| `turn off fan` | Turns the fan OFF |
+| `all off` | Turns ALL devices OFF |
+| `everything off` | Turns ALL devices OFF |
+
+> **Tip:** Commands are case-insensitive. `Turn On Light` and `turn on light` both work.
+
+---
+
+## 🔘 Push Button Controls
+
+As an alternative to voice commands, the push buttons on the diagram simulate physical voice triggers:
+
+| Button Colour | Device | Behaviour |
+|---|---|---|
+| Yellow | Light | Toggles ON ↔ OFF |
+| Red | Heater | Toggles ON ↔ OFF |
+| Blue | AC | Toggles ON ↔ OFF |
+| Green | Fan | Toggles ON ↔ OFF |
+| Black | ALL | Turns everything OFF |
+
+---
+
+## 📺 OLED Display Layout
+
+```
+┌──────────────────────────┐
+│    SMART HOME STATUS     │  ← Header bar
+├──────────────────────────┤
+│ ● LIGHT       [ ON ]     │  ← Filled circle = ON
+│ ○ HEATER      [ OFF]     │  ← Outline circle = OFF
+│ ○ AC          [ OFF]     │
+│ ● FAN         [ ON ]     │
+├──────────────────────────┤
+│ 2 devices active         │  ← Live summary
+└──────────────────────────┘
 ```
 
-The `vote` app will be running at [http://localhost:8080](http://localhost:8080), and the `results` will be at [http://localhost:8081](http://localhost:8081).
+- **Filled circle (●)** — device is ON
+- **Outline circle (○)** — device is OFF
+- Bottom bar shows total number of active devices or "All devices are OFF"
 
-Alternately, if you want to run it on a [Docker Swarm](https://docs.docker.com/engine/swarm/), first make sure you have a swarm. If you don't, run:
+---
 
-```shell
-docker swarm init
+## 🗂️ File Structure
+
+```
+project/
+├── diagram.json   # Wokwi circuit diagram (components + wiring)
+├── sketch.ino     # Arduino source code
+└── README.md      # This file
 ```
 
-Once you have your swarm, in this directory run:
+---
 
-```shell
-docker stack deploy --compose-file docker-stack.yml vote
-```
+## 🛠️ How It Works
 
-## Run the app in Kubernetes
+1. On startup, a welcome screen is shown on the OLED for 2 seconds
+2. The system listens continuously for two types of input:
+   - **Serial Monitor** text (voice simulation)
+   - **Push button** presses on the circuit
+3. When a command is received, the corresponding device (LED) is toggled ON or OFF
+4. The OLED instantly updates to reflect the new state of all devices
+5. If an unrecognized command is entered, an error message is briefly shown on the OLED
 
-The folder k8s-specifications contains the YAML specifications of the Voting App's services.
+---
 
-Run the following command to create the deployments and services. Note it will create these resources in your current namespace (`default` if you haven't changed it.)
-
-```shell
-kubectl create -f k8s-specifications/
-```
-
-The `vote` web app is then available on port 31000 on each host of the cluster, the `result` web app is available on port 31001.
-
-To remove them, run:
-
-```shell
-kubectl delete -f k8s-specifications/
-```
-
-## Architecture
-
-![Architecture diagram](architecture.excalidraw.png)
-
-* A front-end web app in [Python](/vote) which lets you vote between two options
-* A [Redis](https://hub.docker.com/_/redis/) which collects new votes
-* A [.NET](/worker/) worker which consumes votes and stores them in…
-* A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
-* A [Node.js](/result) web app which shows the results of the voting in real time
-
-## Notes
-
-The voting application only accepts one vote per client browser. It does not register additional votes if a vote has already been submitted from a client.
-
-This isn't an example of a properly architected perfectly designed distributed app... it's just a simple
-example of the various types of pieces and languages you might see (queues, persistent data, etc), and how to
-deal with them in Docker at a basic level.
+*Built for Wokwi simulation — easily adaptable for real hardware with a voice recognition module (e.g. DFRobot SEN0539 or elechouse Voice Recognition Module V3).*

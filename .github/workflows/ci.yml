@@ -11,6 +11,8 @@ permissions:
 
 env:
   IMAGE_PREFIX: ghcr.io/slay1der
+  AWS_REGION: us-west-2
+  CLUSTER_NAME: capstone-eks
 
 jobs:
   build-test-scan-push:
@@ -71,3 +73,50 @@ jobs:
           push: true
           tags: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
+
+  deploy:
+    needs: build-test-scan-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get temporary AWS credentials (OIDC, no stored keys)
+        id: aws
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check the cluster is up
+        id: cluster
+        run: |
+          if [ "${{ steps.aws.outcome }}" = "success" ] && aws eks describe-cluster --name "$CLUSTER_NAME" > /dev/null 2>&1; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cluster is not running (infrastructure destroyed to save cost). Skipping deploy."
+          fi
+
+      - name: Connect kubectl to EKS
+        if: steps.cluster.outputs.up == 'true'
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Set up Helm
+        if: steps.cluster.outputs.up == 'true'
+        uses: azure/setup-helm@v4
+
+      - name: Deploy with Helm
+        if: steps.cluster.outputs.up == 'true'
+        run: |
+          helm upgrade --install voting ./helm/voting-app \
+            --set image.tag=${{ github.sha }} \
+            --wait --timeout 5m
+          helm history voting
+          kubectl get pods
