@@ -92,8 +92,8 @@ jobs:
           script: |
             const t = await core.getIDToken('sts.amazonaws.com');
             const c = JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString());
-            core.info(`sub: ${c.sub}`);
-            core.info(`aud: ${c.aud}`);
+            core.notice(`OIDC sub: ${c.sub}`);
+            core.notice(`OIDC aud: ${c.aud}`);
 
       - name: Get temporary AWS credentials (OIDC, no stored keys)
         id: aws
