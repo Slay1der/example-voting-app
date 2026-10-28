@@ -1,147 +1,136 @@
-# 🏠 Smart Home Voice Activation System
-### Wokwi Arduino Simulation
+# Capstone 1: Ship It (Voting App)
 
-A simulated smart home system built on Arduino that allows voice-activated control of home devices. When a device is turned on or off, the OLED display updates in real time to show the current status of all devices.
+From code to automatic deployment: a microservices voting app, hardened in Docker, scanned in CI, and deployed to AWS EKS with Helm, with every piece of infrastructure built from code.
 
----
+Forked from [dockersamples/example-voting-app](https://github.com/dockersamples/example-voting-app).
 
-## 📋 Components
+## Architecture
 
-| Component | Model | Quantity |
-|---|---|---|
-| Microcontroller | Arduino Uno | 1 |
-| Display | SSD1306 OLED 128x64 (I2C) | 1 |
-| LEDs | Yellow, Red, Blue, Green | 4 |
-| Resistors | 220Ω | 4 |
-| Push Buttons | Any colour | 5 |
+```mermaid
+flowchart LR
+    dev[Developer] -->|git push| gh[GitHub repo]
+    gh --> ci[GitHub Actions]
 
----
+    subgraph pipeline [CI/CD pipeline]
+        ci --> build[Build images]
+        build --> test[Test: non-root check]
+        test --> scan[Trivy scan]
+        scan --> push[Push to GHCR, tagged with commit SHA]
+        push --> deploy[Helm upgrade]
+    end
 
-## 🔌 Pin Mapping
+    push --> ghcr[(GHCR registry)]
+    deploy -->|OIDC, no stored keys| eks
 
-### Device Output Pins
-| Device | Pin | LED Colour |
-|---|---|---|
-| Light | D2 | Yellow |
-| Heater | D3 | Red |
-| AC | D4 | Blue |
-| Fan | D5 | Green |
+    subgraph aws [AWS us-west-2, default VPC]
+        subgraph eks [EKS cluster: capstone-eks]
+            vote[vote] --> redis[(redis)]
+            redis --> worker[worker]
+            worker --> db[(postgres)]
+            db --> result[result]
+        end
+    end
 
-### Button Input Pins
-| Button | Pin | Action |
-|---|---|---|
-| Light Toggle | D6 | Turns Light ON/OFF |
-| Heater Toggle | D7 | Turns Heater ON/OFF |
-| AC Toggle | D8 | Turns AC ON/OFF |
-| Fan Toggle | D9 | Turns Fan ON/OFF |
-| All Off | D10 | Turns ALL devices OFF |
+    ghcr -->|nodes pull images| eks
+    tf[Terraform] -->|creates| aws
+```
 
-### OLED Display (I2C)
-| Signal | Pin |
+**How a vote travels:** `vote` (Python) → Redis queue → `worker` (.NET) → PostgreSQL → `result` (Node.js, live updates over socket.io).
+
+## Repository layout
+
+| Path | What it is |
 |---|---|
-| SDA | A4 |
-| SCL | A5 |
-| VCC | 5V |
-| GND | GND |
+| `vote/`, `result/`, `worker/` | App services, each with a hardened Dockerfile and `.dockerignore` |
+| `docker-compose.yml` | Run the whole app locally |
+| `terraform/` | EKS cluster on the default VPC, IAM roles, GitHub OIDC trust |
+| `helm/voting-app/` | One chart, one values file, for all five services |
+| `.github/workflows/ci.yml` | Build, test, scan, push and deploy pipeline |
+| `docs/` | Evidence log and screenshots |
 
----
+## Step 1: Run it locally
 
-## 📦 Libraries Required
+```bash
+docker compose up --build
+```
 
-Install these libraries in Wokwi's Library Manager or via Arduino IDE:
+- Vote: http://localhost:8080
+- Results: http://localhost:8081
 
-- **Adafruit SSD1306** — OLED display driver
-- **Adafruit GFX** — Graphics core library
+## Step 2: Containerized safely
 
----
-
-## 🚀 How to Run
-
-1. Go to [wokwi.com](https://wokwi.com) and create a new **Arduino Uno** project
-2. Replace the default `diagram.json` with the provided `diagram.json`
-3. Replace the default `sketch.ino` with the provided `sketch.ino`
-4. Add the required libraries via the **Library Manager** (click the `+` icon)
-5. Click the **▶ Play** button to start the simulation
-
----
-
-## 🎙️ Voice Commands
-
-Voice is simulated through the **Serial Monitor** (set baud rate to `9600`). Type any of the following commands and press **Enter**:
-
-| Command | Action |
+| Requirement | How |
 |---|---|
-| `turn on light` | Turns the light ON |
-| `turn off light` | Turns the light OFF |
-| `turn on heater` | Turns the heater ON |
-| `turn off heater` | Turns the heater OFF |
-| `turn on ac` | Turns the AC ON |
-| `turn off ac` | Turns the AC OFF |
-| `turn on fan` | Turns the fan ON |
-| `turn off fan` | Turns the fan OFF |
-| `all off` | Turns ALL devices OFF |
-| `everything off` | Turns ALL devices OFF |
+| Pinned base images | Exact version plus `@sha256` digest, e.g. `python:3.11.17-slim-trixie`, `node:22-slim@sha256:...`, `dotnet/runtime:8.0@sha256:...` |
+| Non-root | `vote` and `worker` run as `appuser` (uid 10001); `result` runs as the built-in `node` user |
+| Ports | Non-root users cannot bind ports below 1024, so production images listen on 8080 |
+| `.dockerignore` | One per service, keeps `.git`, build output and caches out of images |
+| Multi-stage builds | `vote` has `dev` and `final` stages; `worker` compiles in the SDK image and ships only the runtime |
 
-> **Tip:** Commands are case-insensitive. `Turn On Light` and `turn on light` both work.
+## Step 3: Kubernetes cluster with Terraform
 
----
+```bash
+cd terraform
+terraform init
+terraform apply      # about 11 minutes
+aws eks update-kubeconfig --region us-west-2 --name capstone-eks
+kubectl get nodes
+terraform destroy    # always destroy when finished
+```
 
-## 🔘 Push Button Controls
+- Uses the existing **default VPC** through `data` sources, so Terraform never creates or deletes the network.
+- Two IAM roles: one for the EKS control plane, one for the worker nodes.
+- Node group: 2 × `m7i-flex.large` (free-tier eligible on this account; `t3.medium` is rejected on the AWS Free plan).
+- The whole environment was destroyed and recreated from code to prove it rebuilds.
+- State files and saved plans are git-ignored. No AWS keys are stored in code.
 
-As an alternative to voice commands, the push buttons on the diagram simulate physical voice triggers:
+## Step 4: CI pipeline (GitHub Actions)
 
-| Button Colour | Device | Behaviour |
+On every push to `main`, for each of `vote`, `result` and `worker` in parallel:
+
+1. **Build** the image (Buildx with GitHub Actions cache)
+2. **Test** that the container does not run as root
+3. **Scan** with Trivy and fail on any fixable CRITICAL vulnerability
+4. **Push** to GHCR as `ghcr.io/slay1der/<service>:<commit-sha>`
+
+Pull requests run steps 1 to 3 only. Third-party actions such as Trivy are pinned to a commit SHA.
+
+## Step 5: Deploy and roll back with Helm
+
+The pipeline's `deploy` job runs after all images pass, gets **temporary AWS credentials through GitHub OIDC** (no stored keys) and runs:
+
+```bash
+helm upgrade --install voting ./helm/voting-app --set image.tag=<commit-sha> --wait
+```
+
+If the cluster is not running, the deploy job skips instead of failing.
+
+Manual deploy and rollback:
+
+```bash
+helm install voting ./helm/voting-app --set image.tag=$(git rev-parse HEAD)
+
+helm upgrade voting ./helm/voting-app --set image.tag=broken-on-purpose
+kubectl get pods            # new pods: ImagePullBackOff, old pods keep serving
+helm history voting
+helm rollback voting 1
+kubectl get pods            # healthy again
+```
+
+Open the app on the cluster:
+
+```bash
+kubectl port-forward svc/vote 8080:8080
+kubectl port-forward svc/result 8081:8081
+```
+
+One-time GitHub setup for the deploy job: **Settings → Secrets and variables → Actions → Variables**, add `AWS_ROLE_ARN` with the `github_deploy_role_arn` value from `terraform output`.
+
+## Security fixes found by the pipeline
+
+Trivy blocked the first builds. Fixes:
+
+| Service | Finding | Fix |
 |---|---|---|
-| Yellow | Light | Toggles ON ↔ OFF |
-| Red | Heater | Toggles ON ↔ OFF |
-| Blue | AC | Toggles ON ↔ OFF |
-| Green | Fan | Toggles ON ↔ OFF |
-| Black | ALL | Turns everything OFF |
-
----
-
-## 📺 OLED Display Layout
-
-```
-┌──────────────────────────┐
-│    SMART HOME STATUS     │  ← Header bar
-├──────────────────────────┤
-│ ● LIGHT       [ ON ]     │  ← Filled circle = ON
-│ ○ HEATER      [ OFF]     │  ← Outline circle = OFF
-│ ○ AC          [ OFF]     │
-│ ● FAN         [ ON ]     │
-├──────────────────────────┤
-│ 2 devices active         │  ← Live summary
-└──────────────────────────┘
-```
-
-- **Filled circle (●)** — device is ON
-- **Outline circle (○)** — device is OFF
-- Bottom bar shows total number of active devices or "All devices are OFF"
-
----
-
-## 🗂️ File Structure
-
-```
-project/
-├── diagram.json   # Wokwi circuit diagram (components + wiring)
-├── sketch.ino     # Arduino source code
-└── README.md      # This file
-```
-
----
-
-## 🛠️ How It Works
-
-1. On startup, a welcome screen is shown on the OLED for 2 seconds
-2. The system listens continuously for two types of input:
-   - **Serial Monitor** text (voice simulation)
-   - **Push button** presses on the circuit
-3. When a command is received, the corresponding device (LED) is toggled ON or OFF
-4. The OLED instantly updates to reflect the new state of all devices
-5. If an unrecognized command is entered, an error message is briefly shown on the OLED
-
----
-
-*Built for Wokwi simulation — easily adaptable for real hardware with a voice recognition module (e.g. DFRobot SEN0539 or elechouse Voice Recognition Module V3).*
+| worker | `System.Drawing.Common 5.0.0`, CVE-2021-24112 (critical, pulled in transitively by StackExchange.Redis) | Pinned `System.Drawing.Common 5.0.3` |
+| worker | .NET 7 runtime on end-of-life Debian 11 (e.g. `libkrb5support0`) |
